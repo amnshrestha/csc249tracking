@@ -15,6 +15,17 @@ class DCFNetFeature(nn.Module):
     def forward(self, x):
         return self.feature(x)
 
+def complex_mul(x, z):
+    out_real = x[..., 0] * z[..., 0] - x[..., 1] * z[..., 1]
+    out_imag = x[..., 0] * z[..., 1] + x[..., 1] * z[..., 0]
+    return torch.stack((out_real, out_imag), -1)
+
+
+def complex_mulconj(x, z):
+    out_real = x[..., 0] * z[..., 0] + x[..., 1] * z[..., 1]
+    out_imag = x[..., 1] * z[..., 0] - x[..., 0] * z[..., 1]
+    return torch.stack((out_real, out_imag), -1)
+
 
 class DCFNet(nn.Module):
     def __init__(self, config=None):
@@ -37,7 +48,13 @@ class DCFNet(nn.Module):
         z = self.feature(z) * self.config.cos_window
         # TODO: You are required to calculate response using self.wf to do cross correlation on the searching patch z
         # put your code here
-
+        xf = torch.rfft(z, signal_ndim=2)
+        kxzf = torch.sum(complex_mulconj(xf, self.model_zf), dim=1, keepdim=True)
+        response = torch.irfft(complex_mul(kxzf, self.model_alphaf), signal_ndim=2)
+        # r_max = torch.max(response)
+        # cv2.imshow('response', response[0, 0].data.cpu().numpy())
+        # cv2.waitKey(0)
+        return response
 
 
         return response
@@ -63,6 +80,18 @@ class DCFNet(nn.Module):
         x = self.feature(x) * self.config.cos_window
         # TODO: calculate self.xf and self.wf
         # put your code here
+        zf = torch.rfft(x, signal_ndim=2)
+        kzzf = torch.sum(torch.sum(zf ** 2, dim=4, keepdim=True), dim=1, keepdim=True)
+        alphaf = self.config.yf / (kzzf + self.config.lambda0)
+        if lr > 0.99:
+            self.model_alphaf = alphaf
+            self.model_zf = zf
+        else:
+            self.model_alphaf = (1 - lr) * self.model_alphaf.data + lr * alphaf.data
+            self.model_zf = (1 - lr) * self.model_zf.data + lr * zf.data
+
+
+
 
 
 
